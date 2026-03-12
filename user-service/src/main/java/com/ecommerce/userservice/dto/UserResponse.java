@@ -35,6 +35,11 @@ public class UserResponse {
     private String role;
 
     /**
+     * Whether the account is currently active.
+     */
+    private boolean active;
+
+    /**
      * Note: Password is intentionally excluded from this response
      * for security reasons. Never expose passwords in API responses!
      */

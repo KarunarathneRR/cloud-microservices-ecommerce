@@ -24,6 +24,9 @@ public class JwtUtil {
     @Value("${jwt.secret}")
     private String secretKey;
 
+    @Value("${jwt.expiration}")
+    private long expiration;
+
     /**
      * Generate a signing key from the secret
      * 
@@ -54,7 +57,7 @@ public class JwtUtil {
                 .setClaims(claims)
                 .setSubject(email)
                 .setIssuedAt(new Date(System.currentTimeMillis()))
-                // No expiration set as per assignment requirements
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }

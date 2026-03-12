@@ -172,7 +172,7 @@ Register a new user account.
   "id": 1,
   "name": "John Doe",
   "email": "john.doe@example.com",
-  "role": "USER"
+  "role": "CUSTOMER"
 }
 ```
 
@@ -271,7 +271,7 @@ Content-Type: application/json
   "name": "Alice Smith",
   "email": "alice.smith@example.com",
   "password": "alice123",
-  "role": "SELLER"
+  "role": "CUSTOMER"
 }
 ```
 

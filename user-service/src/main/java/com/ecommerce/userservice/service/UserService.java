@@ -1,21 +1,28 @@
 package com.ecommerce.userservice.service;
 
-import com.ecommerce.userservice.dto.LoginRequest;
-import com.ecommerce.userservice.dto.LoginResponse;
-import com.ecommerce.userservice.dto.RegisterRequest;
-import com.ecommerce.userservice.dto.UserResponse;
-import com.ecommerce.userservice.entity.User;
-import com.ecommerce.userservice.exception.DuplicateEmailException;
-import com.ecommerce.userservice.exception.InvalidCredentialsException;
-import com.ecommerce.userservice.exception.UserNotFoundException;
-import com.ecommerce.userservice.repository.UserRepository;
-import com.ecommerce.userservice.security.JwtUtil;
-import lombok.RequiredArgsConstructor;
+import java.util.List;
+import java.util.Locale;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.ecommerce.userservice.dto.LoginRequest;
+import com.ecommerce.userservice.dto.LoginResponse;
+import com.ecommerce.userservice.dto.RegisterRequest;
+import com.ecommerce.userservice.dto.UpdateUserRequest;
+import com.ecommerce.userservice.dto.UserResponse;
+import com.ecommerce.userservice.entity.User;
+import com.ecommerce.userservice.exception.DuplicateEmailException;
+import com.ecommerce.userservice.exception.ForbiddenOperationException;
+import com.ecommerce.userservice.exception.InvalidCredentialsException;
+import com.ecommerce.userservice.exception.UserNotFoundException;
+import com.ecommerce.userservice.repository.UserRepository;
+import com.ecommerce.userservice.security.JwtUtil;
+
+import lombok.RequiredArgsConstructor;
 
 /**
  * UserService Class
@@ -58,21 +65,14 @@ public class UserService {
         // Hash the password using BCrypt
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         
-        // Set role (default to "USER" if not provided)
-        user.setRole(request.getRole() != null && !request.getRole().isEmpty() 
-                ? request.getRole() : "USER");
+        user.setRole(normalizeRole(request.getRole()));
 
         // Save user to database
         User savedUser = userRepository.save(user);
         logger.info("User registered successfully with ID: {}", savedUser.getId());
 
         // Return user response (without password)
-        return new UserResponse(
-                savedUser.getId(),
-                savedUser.getName(),
-                savedUser.getEmail(),
-                savedUser.getRole()
-        );
+        return mapToResponse(savedUser);
     }
 
     /**
@@ -97,6 +97,11 @@ public class UserService {
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             logger.warn("Login failed: Invalid password for user - {}", request.getEmail());
             throw new InvalidCredentialsException("Invalid email or password");
+        }
+
+        if (!user.isActive()) {
+            logger.warn("Login failed: Inactive account - {}", request.getEmail());
+            throw new InvalidCredentialsException("Account is deactivated");
         }
 
         // Generate JWT token
@@ -133,12 +138,7 @@ public class UserService {
         logger.info("User found: {}", user.getEmail());
 
         // Return user response (without password)
-        return new UserResponse(
-                user.getId(),
-                user.getName(),
-                user.getEmail(),
-                user.getRole()
-        );
+        return mapToResponse(user);
     }
 
     /**
@@ -161,11 +161,84 @@ public class UserService {
         logger.info("User found with email: {}", email);
 
         // Return user response (without password)
+        return mapToResponse(user);
+    }
+
+    public List<UserResponse> getUsers(String role) {
+        logger.info("Fetching users with role filter: {}", role);
+
+        return userRepository.findAll()
+                .stream()
+                .filter(user -> role == null || role.isBlank() || user.getRole().equalsIgnoreCase(role))
+                .map(this::mapToResponse)
+                .toList();
+    }
+
+    @Transactional
+    public UserResponse updateUser(Long targetUserId, Long requesterUserId, boolean isAdmin, UpdateUserRequest request) {
+        logger.info("Updating user profile targetUserId={}, requesterUserId={}, isAdmin={}",
+                targetUserId, requesterUserId, isAdmin);
+
+        if (!isAdmin && !targetUserId.equals(requesterUserId)) {
+            throw new ForbiddenOperationException("You can only update your own profile");
+        }
+
+        User user = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + targetUserId));
+
+        if (!user.getEmail().equalsIgnoreCase(request.getEmail()) && userRepository.existsByEmail(request.getEmail())) {
+            throw new DuplicateEmailException("Email already registered: " + request.getEmail());
+        }
+
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+
+        return mapToResponse(userRepository.save(user));
+    }
+
+    @Transactional
+    public UserResponse deactivateUser(Long targetUserId, Long requesterUserId, boolean isAdmin) {
+        logger.info("Deactivating user targetUserId={}, requesterUserId={}, isAdmin={}",
+                targetUserId, requesterUserId, isAdmin);
+
+        if (!isAdmin && !targetUserId.equals(requesterUserId)) {
+            throw new ForbiddenOperationException("You can only deactivate your own profile");
+        }
+
+        User user = userRepository.findById(targetUserId)
+                .orElseThrow(() -> new UserNotFoundException("User not found with ID: " + targetUserId));
+
+        user.setActive(false);
+        return mapToResponse(userRepository.save(user));
+    }
+
+    private UserResponse mapToResponse(User user) {
         return new UserResponse(
                 user.getId(),
                 user.getName(),
                 user.getEmail(),
-                user.getRole()
+                user.getRole(),
+                user.isActive()
         );
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null || role.isBlank()) {
+            return "CUSTOMER";
+        }
+
+        String normalizedRole = role.trim().toUpperCase(Locale.ROOT);
+        if ("ADMIN".equals(normalizedRole)) {
+            return "ADMIN";
+        }
+
+        if ("USER".equals(normalizedRole) || "CUSTOMER".equals(normalizedRole)) {
+            return "CUSTOMER";
+        }
+
+        return "CUSTOMER";
     }
 }

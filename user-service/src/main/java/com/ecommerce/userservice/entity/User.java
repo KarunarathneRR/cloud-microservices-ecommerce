@@ -52,4 +52,10 @@ public class User {
      */
     @Column(nullable = false)
     private String role = "USER";
+
+    /**
+     * Whether the account is active and allowed to authenticate.
+     */
+    @Column(nullable = false)
+    private boolean active = true;
 }

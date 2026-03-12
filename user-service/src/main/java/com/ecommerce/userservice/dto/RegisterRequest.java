@@ -42,8 +42,8 @@ public class RegisterRequest {
 
     /**
      * User's role (optional)
-     * If not provided, defaults to "USER" in the service layer
-     * Examples: "USER", "ADMIN", "SELLER"
+     * If not provided, defaults to CUSTOMER in the service layer
+     * Accepted values are CUSTOMER and ADMIN
      */
     private String role;
 }
