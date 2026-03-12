@@ -1,20 +1,17 @@
 package com.ecommerce.paymentservice.dto;
 
+import com.ecommerce.paymentservice.entity.PaymentStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
  * PaymentResponse DTO
- * Data Transfer Object for payment responses
- * Returned to Order Service after payment processing
- * 
- * MICROSERVICES INTEGRATION:
- * - Returned by POST /payments/process after payment attempt
- * - Order Service uses this to update order status
- * - Contains payment status (SUCCESS/FAILED) for order fulfillment decisions
+ * Data Transfer Object returned after a payment operation
+ * Contains full payment details and a human-readable message
  */
 @Data
 @NoArgsConstructor
@@ -22,52 +19,47 @@ import java.time.LocalDateTime;
 public class PaymentResponse {
 
     /**
-     * Payment ID (database primary key)
+     * Unique payment identifier
      */
     private Long id;
 
     /**
-     * Order ID from Order Service
+     * The order this payment belongs to
      */
     private Long orderId;
 
     /**
-     * Payment amount
+     * The user who made this payment
      */
-    private Double amount;
+    private Long userId;
+
+    /**
+     * Amount that was charged
+     */
+    private BigDecimal amount;
+
+    /**
+     * Current status of the payment (PENDING, COMPLETED, FAILED, REFUNDED)
+     */
+    private PaymentStatus status;
 
     /**
      * Payment method used
      */
-    private String method;
+    private String paymentMethod;
 
     /**
-     * Payment status: "PENDING", "SUCCESS", or "FAILED"
-     * Order Service checks this to determine next steps:
-     * - SUCCESS: Proceed with order fulfillment
-     * - FAILED: Cancel order or prompt user for alternative payment
+     * Unique transaction reference ID
      */
-    private String status;
+    private String transactionId;
 
     /**
-     * Timestamp when payment was created
+     * Timestamp when the payment was created
      */
     private LocalDateTime createdAt;
 
     /**
-     * Message describing payment result
+     * Human-readable result message (e.g., "Payment processed successfully")
      */
     private String message;
-
-    /**
-     * Convenience constructor without message
-     */
-    public PaymentResponse(Long id, Long orderId, Double amount, String method, String status, LocalDateTime createdAt) {
-        this.id = id;
-        this.orderId = orderId;
-        this.amount = amount;
-        this.method = method;
-        this.status = status;
-        this.createdAt = createdAt;
-    }
 }

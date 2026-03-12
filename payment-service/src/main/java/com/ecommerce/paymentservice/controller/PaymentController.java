@@ -2,6 +2,7 @@ package com.ecommerce.paymentservice.controller;
 
 import com.ecommerce.paymentservice.dto.PaymentRequest;
 import com.ecommerce.paymentservice.dto.PaymentResponse;
+import com.ecommerce.paymentservice.exception.ForbiddenOperationException;
 import com.ecommerce.paymentservice.service.PaymentService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -10,65 +11,60 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.Authentication;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
- * PaymentController Class
- * REST API endpoints for payment processing and querying
- * 
- * MICROSERVICES ARCHITECTURE:
- * This controller serves as the main interface for Order Service to:
- * 1. Process payments (POST /payments/process)
- * 2. Check payment status (GET /payments/order/{orderId})
- * 
- * TYPICAL WORKFLOW:
- * 1. User places order → Order Service creates order
- * 2. Order Service calls POST /payments/process with order details
- * 3. Payment Service processes payment and returns status
- * 4. Order Service updates order status based on payment result
- * 5. If needed, Order Service can query payment status via GET /payments/order/{orderId}
- * 
- * In production, consider:
- * - Adding authentication/authorization (API keys, OAuth)
- * - Implementing retry logic for failed payments
- * - Adding circuit breaker pattern (Resilience4j)
- * - Using message queues (RabbitMQ, Kafka) for async processing
+ * PaymentController
+ * REST API endpoints for payment processing and retrieval
+ *
+ * Base path: /payments
+ * Port: 8083
  */
 @RestController
 @RequestMapping("/payments")
 @RequiredArgsConstructor
-@Tag(name = "Payment Management", description = "APIs for payment processing and status checking")
+@Tag(name = "Payment Management", description = "APIs for payment processing and retrieval")
 public class PaymentController {
 
     private final PaymentService paymentService;
 
     /**
-     * Process a payment
-     * POST /payments/process
-     * 
-     * MICROSERVICES INTEGRATION:
-     * - Called by Order Service after order creation
-     * - Order Service sends order ID, amount, and payment method
-     * - Returns payment status for order fulfillment decision
-     * 
-     * @param request PaymentRequest containing order details
+     * Process a new payment
+     * POST /payments
+     *
+     * Validates the user via user-service, then processes and stores the payment.
+     *
+     * @param request PaymentRequest body
      * @return ResponseEntity with PaymentResponse and HTTP 201 (CREATED)
      */
-    @PostMapping("/process")
+    @PostMapping
     @Operation(
             summary = "Process a payment",
-            description = "Processes a payment request from Order Service. Simulates payment gateway interaction and returns payment status (SUCCESS/FAILED). Order Service uses this status to determine order fulfillment."
+            description = "Validates the user against user-service, then processes the payment for the given order. " +
+                          "Returns the created payment record with COMPLETED status on success."
     )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Payment processed (check status field for SUCCESS/FAILED)"),
+            @ApiResponse(responseCode = "201", description = "Payment processed successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid request data or validation error"),
-            @ApiResponse(responseCode = "409", description = "Duplicate payment - payment already exists for this order"),
-            @ApiResponse(responseCode = "500", description = "Payment processing error")
+            @ApiResponse(responseCode = "404", description = "User not found in user-service"),
+            @ApiResponse(responseCode = "503", description = "User service unavailable")
     })
     public ResponseEntity<PaymentResponse> processPayment(
-            @Valid @RequestBody PaymentRequest request) {
+            @Valid @RequestBody PaymentRequest request,
+            Authentication authentication) {
+        Long requesterUserId = getRequesterUserId(authentication);
+        boolean isAdmin = isAdmin(authentication);
+        if (isAdmin) {
+            throw new ForbiddenOperationException("Admin users do not make payments");
+        }
+        if (!requesterUserId.equals(request.getUserId())) {
+            throw new ForbiddenOperationException("You can only create payments for your own account");
+        }
         PaymentResponse response = paymentService.processPayment(request);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
@@ -76,14 +72,14 @@ public class PaymentController {
     /**
      * Get payment by ID
      * GET /payments/{id}
-     * 
-     * @param id payment ID
+     *
+     * @param id payment's unique identifier
      * @return ResponseEntity with PaymentResponse and HTTP 200 (OK)
      */
     @GetMapping("/{id}")
     @Operation(
             summary = "Get payment by ID",
-            description = "Retrieves payment details by payment ID. Returns payment status, amount, method, and timestamp."
+            description = "Retrieves a single payment record by its unique identifier"
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Payment found and returned"),
@@ -92,51 +88,84 @@ public class PaymentController {
     public ResponseEntity<PaymentResponse> getPaymentById(
             @Parameter(description = "Payment ID", example = "1")
             @PathVariable Long id) {
-        PaymentResponse response = paymentService.getPaymentById(id);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(paymentService.getPaymentById(id));
     }
 
     /**
-     * Get payment by order ID
+     * Get all payments for a specific order
      * GET /payments/order/{orderId}
-     * 
-     * MICROSERVICES INTEGRATION:
-     * - Called by Order Service to check payment status for an order
-     * - Critical for order fulfillment workflow
-     * - If payment status is SUCCESS, Order Service proceeds with fulfillment
-     * - If payment status is FAILED, Order Service cancels order or prompts for new payment
-     * 
-     * @param orderId order ID from Order Service
-     * @return ResponseEntity with PaymentResponse and HTTP 200 (OK)
+     *
+     * @param orderId the order's unique identifier
+     * @return ResponseEntity with list of PaymentResponse and HTTP 200 (OK)
      */
     @GetMapping("/order/{orderId}")
     @Operation(
-            summary = "Get payment by order ID",
-            description = "Retrieves payment details by order ID. Used by Order Service to check payment status before order fulfillment. Essential for microservices integration and order workflow."
+            summary = "Get payments by order ID",
+            description = "Retrieves all payment records associated with a specific order"
     )
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Payment found for the order"),
-            @ApiResponse(responseCode = "404", description = "Payment not found for the given order ID")
-    })
-    public ResponseEntity<PaymentResponse> getPaymentByOrderId(
-            @Parameter(description = "Order ID from Order Service", example = "1001")
+    @ApiResponse(responseCode = "200", description = "Payments retrieved successfully")
+    public ResponseEntity<List<PaymentResponse>> getPaymentsByOrderId(
+            @Parameter(description = "Order ID", example = "1")
             @PathVariable Long orderId) {
-        PaymentResponse response = paymentService.getPaymentByOrderId(orderId);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(paymentService.getPaymentsByOrderId(orderId));
+    }
+
+    /**
+     * Get all payments made by a specific user
+     * GET /payments/user/{userId}
+     *
+     * @param userId the user's unique identifier
+     * @return ResponseEntity with list of PaymentResponse and HTTP 200 (OK)
+     */
+    @GetMapping("/user/{userId}")
+    @Operation(
+            summary = "Get payments by user ID",
+            description = "Retrieves all payment records made by a specific user"
+    )
+    @ApiResponse(responseCode = "200", description = "Payments retrieved successfully")
+    public ResponseEntity<List<PaymentResponse>> getPaymentsByUserId(
+            @Parameter(description = "User ID", example = "1")
+            @PathVariable Long userId,
+            Authentication authentication) {
+        Long requesterUserId = getRequesterUserId(authentication);
+        if (!isAdmin(authentication) && !requesterUserId.equals(userId)) {
+            throw new ForbiddenOperationException("You can only view your own payment history");
+        }
+        return ResponseEntity.ok(paymentService.getPaymentsByUserId(userId));
+    }
+
+    @GetMapping
+    @Operation(
+            summary = "Get all payments",
+            description = "Retrieves every payment record. Intended for admin reporting and management views."
+    )
+    @ApiResponse(responseCode = "200", description = "Payments retrieved successfully")
+    public ResponseEntity<List<PaymentResponse>> getAllPayments(Authentication authentication) {
+        if (!isAdmin(authentication)) {
+            throw new ForbiddenOperationException("Only admin users can view all payments");
+        }
+        return ResponseEntity.ok(paymentService.getAllPayments());
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream()
+                .anyMatch(authority -> "ROLE_ADMIN".equals(authority.getAuthority()));
+    }
+
+    private Long getRequesterUserId(Authentication authentication) {
+        return (Long) authentication.getDetails();
     }
 
     /**
      * Health check endpoint
      * GET /payments/health
-     * 
-     * Used by service discovery and monitoring tools to check service health
-     * 
+     *
      * @return ResponseEntity with health status message
      */
     @GetMapping("/health")
     @Operation(
             summary = "Health check",
-            description = "Simple endpoint to check if the payment service is running. Used by monitoring tools and service discovery."
+            description = "Simple endpoint to verify that the payment service is running"
     )
     @ApiResponse(responseCode = "200", description = "Service is healthy")
     public ResponseEntity<String> healthCheck() {

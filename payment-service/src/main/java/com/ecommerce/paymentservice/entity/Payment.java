@@ -5,17 +5,13 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
  * Payment Entity
  * Represents a payment transaction in the e-commerce system
- * This entity is mapped to the 'payments' table in the database
- * 
- * MICROSERVICES INTEGRATION:
- * - orderId links this payment to an order in the Order Service
- * - Order Service calls POST /payments/process to create a payment
- * - Order Service can query payment status via GET /payments/order/{orderId}
+ * Mapped to the 'payments' table in the H2 in-memory database
  */
 @Entity
 @Table(name = "payments")
@@ -32,46 +28,54 @@ public class Payment {
     private Long id;
 
     /**
-     * Order ID from Order Service
-     * Links this payment to an order in another microservice
-     * In a real system, this could be validated via REST call to Order Service
+     * The order ID this payment belongs to (from order-service)
+     * Payment-service does not own the Order entity; it stores the reference only
      */
     @Column(nullable = false)
     private Long orderId;
 
     /**
-     * Payment amount in dollars
-     * Should match the order total from Order Service
+     * The user who made this payment (validated via user-service)
      */
     @Column(nullable = false)
-    private Double amount;
+    private Long userId;
 
     /**
-     * Payment method
-     * Examples: "CREDIT_CARD", "DEBIT_CARD", "PAYPAL", "BANK_TRANSFER"
+     * Payment amount (e.g., 99.99)
+     */
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal amount;
+
+    /**
+     * Current status of the payment
+     * Stored as a string in the database for readability
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private PaymentStatus status;
+
+    /**
+     * Payment method used (e.g., CREDIT_CARD, DEBIT_CARD, PAYPAL)
      */
     @Column(nullable = false)
-    private String method;
+    private String paymentMethod;
 
     /**
-     * Payment status
-     * Values: "PENDING", "SUCCESS", "FAILED"
-     * - PENDING: Payment is being processed
-     * - SUCCESS: Payment completed successfully
-     * - FAILED: Payment failed (insufficient funds, invalid card, etc.)
+     * Unique transaction ID generated at payment time
+     * Used to trace the payment in external payment gateways
      */
-    @Column(nullable = false)
-    private String status;
+    @Column(unique = true)
+    private String transactionId;
 
     /**
-     * Timestamp when payment was created
-     * Automatically set when payment record is created
+     * Timestamp when the payment record was created
+     * Set automatically before persisting
      */
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     /**
-     * Pre-persist hook to set createdAt timestamp
+     * Automatically set createdAt before the entity is first persisted
      */
     @PrePersist
     protected void onCreate() {

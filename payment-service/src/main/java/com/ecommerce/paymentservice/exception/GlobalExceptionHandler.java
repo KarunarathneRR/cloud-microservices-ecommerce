@@ -13,83 +13,50 @@ import java.util.Map;
 
 /**
  * GlobalExceptionHandler
- * Centralized exception handling for the entire application
- * Catches exceptions thrown by controllers and returns consistent error responses
- * 
- * MICROSERVICES INTEGRATION:
- * - Returns standardized error responses to Order Service
- * - Helps Order Service handle errors gracefully
- * - Consistent error format aids in debugging and logging
+ * Centralized exception handling for the payment-service
+ * Translates domain exceptions into consistent HTTP error responses
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
     /**
-     * Handle PaymentNotFoundException
-     * Returns 404 NOT FOUND status
-     * 
-     * @param ex the exception
-     * @return ResponseEntity with error details
+     * Handle PaymentNotFoundException → 404 NOT FOUND
      */
     @ExceptionHandler(PaymentNotFoundException.class)
     public ResponseEntity<ErrorResponse> handlePaymentNotFoundException(PaymentNotFoundException ex) {
-        ErrorResponse errorResponse = new ErrorResponse(
-                HttpStatus.NOT_FOUND.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     /**
-     * Handle DuplicatePaymentException
-     * Returns 409 CONFLICT status
-     * Indicates payment already exists for the given order
-     * 
-     * @param ex the exception
-     * @return ResponseEntity with error details
+     * Handle UserNotFoundException → 404 NOT FOUND
+     * Returned when user-service reports the userId does not exist
      */
-    @ExceptionHandler(DuplicatePaymentException.class)
-    public ResponseEntity<ErrorResponse> handleDuplicatePaymentException(DuplicatePaymentException ex) {
-        ErrorResponse errorResponse = new ErrorResponse(
-                HttpStatus.CONFLICT.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return new ResponseEntity<>(errorResponse, HttpStatus.CONFLICT);
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFoundException(UserNotFoundException ex) {
+        return buildResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     /**
-     * Handle PaymentProcessingException
-     * Returns 500 INTERNAL SERVER ERROR status
-     * Indicates technical failure during payment processing
-     * 
-     * @param ex the exception
-     * @return ResponseEntity with error details
+     * Handle UserServiceException → 503 SERVICE UNAVAILABLE
+     * Returned when user-service cannot be reached
      */
-    @ExceptionHandler(PaymentProcessingException.class)
-    public ResponseEntity<ErrorResponse> handlePaymentProcessingException(PaymentProcessingException ex) {
-        ErrorResponse errorResponse = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    @ExceptionHandler(UserServiceException.class)
+    public ResponseEntity<ErrorResponse> handleUserServiceException(UserServiceException ex) {
+        return buildResponse(HttpStatus.SERVICE_UNAVAILABLE, ex.getMessage());
+    }
+
+    @ExceptionHandler(ForbiddenOperationException.class)
+    public ResponseEntity<ErrorResponse> handleForbiddenOperationException(ForbiddenOperationException ex) {
+        return buildResponse(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     /**
-     * Handle validation errors
-     * Triggered when @Valid annotation fails on request body
-     * Returns 400 BAD REQUEST status with field-specific error messages
-     * 
-     * @param ex the exception containing validation errors
-     * @return ResponseEntity with field errors
+     * Handle validation errors → 400 BAD REQUEST
+     * Triggered when @Valid fails on a request body field
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
-        
-        // Extract field errors from the exception
         ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
             String errorMessage = error.getDefaultMessage();
@@ -106,26 +73,21 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Handle generic exceptions
-     * Catches any unhandled exceptions
-     * Returns 500 INTERNAL SERVER ERROR status
-     * 
-     * @param ex the exception
-     * @return ResponseEntity with error details
+     * Handle all other exceptions → 500 INTERNAL SERVER ERROR
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
-        ErrorResponse errorResponse = new ErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "An unexpected error occurred: " + ex.getMessage(),
-                LocalDateTime.now()
-        );
-        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+        return buildResponse(HttpStatus.INTERNAL_SERVER_ERROR,
+                "An unexpected error occurred: " + ex.getMessage());
+    }
+
+    private ResponseEntity<ErrorResponse> buildResponse(HttpStatus status, String message) {
+        ErrorResponse errorResponse = new ErrorResponse(status.value(), message, LocalDateTime.now());
+        return new ResponseEntity<>(errorResponse, status);
     }
 
     /**
-     * ErrorResponse inner class
-     * Standard structure for error responses
+     * Standard error response body structure
      */
     public static class ErrorResponse {
         private int status;
@@ -138,30 +100,12 @@ public class GlobalExceptionHandler {
             this.timestamp = timestamp;
         }
 
-        // Getters
-        public int getStatus() {
-            return status;
-        }
+        public int getStatus() { return status; }
+        public String getMessage() { return message; }
+        public LocalDateTime getTimestamp() { return timestamp; }
 
-        public String getMessage() {
-            return message;
-        }
-
-        public LocalDateTime getTimestamp() {
-            return timestamp;
-        }
-
-        // Setters
-        public void setStatus(int status) {
-            this.status = status;
-        }
-
-        public void setMessage(String message) {
-            this.message = message;
-        }
-
-        public void setTimestamp(LocalDateTime timestamp) {
-            this.timestamp = timestamp;
-        }
+        public void setStatus(int status) { this.status = status; }
+        public void setMessage(String message) { this.message = message; }
+        public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
     }
 }
