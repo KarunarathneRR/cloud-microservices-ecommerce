@@ -60,5 +60,9 @@ lombok.config.lock
 
 # Application specific
 *.log.*
+*.err
 application-local.properties
 application-dev.properties
+client/node_modules/
+client/.vite/
+client/dist/
